@@ -1,19 +1,19 @@
-"""Triage mail with Claude.
+"""Triage mail with the configured LLM.
 
-Sends the fetched messages to the Anthropic API and returns a parsed verdict:
-an overall summary plus a per-email category and reason. The model returns only
-JSON; we parse it in Python (the model does no arithmetic — guardrail #4).
+Sends the fetched messages through provider.summarize() and returns a parsed
+verdict: an overall summary plus a per-email category and reason. The model
+returns only JSON; we parse it in Python (the model does no arithmetic —
+guardrail #4).
 """
 
 import json
 
-from anthropic import Anthropic
-
-from config import MODEL
+from provider import summarize
 
 _CATEGORIES = ("URGENT", "NEEDS_REPLY", "FYI", "NOISE")
 
-_SYSTEM_PROMPT = (
+# Folded into the head of the prompt (summarize() takes a single prompt string).
+_INSTRUCTIONS = (
     "You are an email triage assistant. You receive a list of recent emails and "
     "classify each one to help a busy person decide what needs attention.\n\n"
     "Categories (use exactly these):\n"
@@ -86,20 +86,11 @@ def triage(messages: list[dict]) -> dict:
     if not messages:
         return {"overall_summary": "No mail in the lookback window.", "emails": []}
 
-    client = Anthropic()  # reads ANTHROPIC_API_KEY from the environment
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=1500,
-        system=_SYSTEM_PROMPT,
-        messages=[
-            {
-                "role": "user",
-                "content": f"Here are {len(messages)} recent emails:\n\n{_format_emails(messages)}",
-            }
-        ],
+    prompt = (
+        f"{_INSTRUCTIONS}\n\n"
+        f"Here are {len(messages)} recent emails:\n\n{_format_emails(messages)}"
     )
-
-    raw = response.content[0].text.strip()
+    raw = summarize(prompt).strip()
     try:
         verdict = json.loads(_strip_code_fences(raw))
     except json.JSONDecodeError as e:

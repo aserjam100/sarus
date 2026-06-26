@@ -32,11 +32,17 @@ def _save_cache(cache: msal.SerializableTokenCache) -> None:
             f.write(cache.serialize())
 
 
-def get_token() -> str:
+def get_token(allow_interactive: bool = True) -> str:
     """Return a valid Graph access token, prompting device-code login only if needed.
 
-    Tries acquire_token_silent first (uses the cache); on miss, falls back to the
-    device-code flow and prints the verification URL + code to the terminal.
+    Tries acquire_token_silent first (uses the cache + refresh token); on miss,
+    falls back to the device-code flow and prints the verification URL + code.
+
+    Unattended callers (the meeting-prep poll, scheduled runs) pass
+    allow_interactive=False: a silent miss then raises a clear RuntimeError
+    instead of starting device-code flow, which would hang forever waiting on a
+    code nobody can enter under launchd/cron. Run `python sarus.py` once
+    interactively to (re)consent — e.g. after the Graph scopes change.
     """
     if not MS_CLIENT_ID or not MS_TENANT_AUTHORITY:
         raise RuntimeError(
@@ -52,13 +58,22 @@ def get_token() -> str:
         token_cache=cache,
     )
 
-    # 1) Try silently from the cache.
+    # 1) Try silently from the cache (this also refreshes via the refresh token).
     result = None
     accounts = app.get_accounts()
     if accounts:
         result = app.acquire_token_silent(GRAPH_SCOPES, account=accounts[0])
 
-    # 2) Fall back to device-code flow.
+    # 2) Fall back to device-code flow — unless this is an unattended run.
+    if not result and not allow_interactive:
+        raise RuntimeError(
+            "No valid token could be acquired silently (the cache is missing, "
+            "expired, or lacks the required scopes). This unattended run will not "
+            "prompt for device-code login. Run `python sarus.py` once interactively "
+            "to sign in / re-consent, then scheduled runs will refresh silently.\n"
+            f"Scopes requested: {GRAPH_SCOPES}"
+        )
+
     if not result:
         flow = app.initiate_device_flow(scopes=GRAPH_SCOPES)
         if "user_code" not in flow:
@@ -85,16 +100,19 @@ def get_token() -> str:
     return result["access_token"]
 
 
-def _smoke_check() -> None:
+def _smoke_check(allow_interactive: bool = True) -> None:
     """Prove auth + the Mail.Read scope by reading one message from Graph.
 
     We deliberately do NOT call /me (profile), which would require User.Read —
-    Sarus's only scope is Mail.Read. Reading a single message proves the token
-    works for exactly what Sarus needs.
+    reading a single message proves the token works for exactly what Sarus needs.
+
+    With allow_interactive=False (the `--silent` mode), this proves the cached
+    token refreshes silently without any prompt — the precondition for the
+    unattended prep poll and scheduled digest.
     """
     import requests
 
-    token = get_token()
+    token = get_token(allow_interactive=allow_interactive)
     resp = requests.get(
         "https://graph.microsoft.com/v1.0/me/messages",
         headers={"Authorization": f"Bearer {token}"},
@@ -113,4 +131,9 @@ def _smoke_check() -> None:
 
 
 if __name__ == "__main__":
-    _smoke_check()
+    # `python auth.py`           interactive smoke check (device-code on first run)
+    # `python auth.py --silent`  prove the cached token refreshes with NO prompt
+    silent = "--silent" in sys.argv
+    if silent:
+        print("Silent token check (no device-code prompt will be shown)…")
+    _smoke_check(allow_interactive=not silent)

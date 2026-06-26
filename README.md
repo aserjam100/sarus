@@ -8,17 +8,35 @@
 # Sarus
 
 A personal, **read-only** email triage tool. On a schedule it signs in to your
-Microsoft mailbox (read-only), sends recent mail to Claude for categorization +
-summary, and writes a markdown briefing. It runs locally on your machine with
-your own credentials. Sarus reports; you act.
+Microsoft account (read-only), sends recent mail to Claude for categorization +
+summary, and writes a styled **HTML** briefing that pops up as a clickable macOS
+notification. It can also **prep you for upcoming meetings**: a background poll
+briefs each meeting starting soon, straight from your calendar. It runs locally
+on your machine with your own credentials. Sarus reports; you act.
 
 > Sarus is named for the sarus crane — a tall, long-necked bird.
 
 ## What it can and can't do
 
-- ✅ Reads recent mail (`Mail.Read` only) and summarizes it.
-- ❌ Never sends, deletes, moves, or modifies mail. There is no write access.
+- ✅ Reads recent mail and upcoming calendar events, and summarizes them
+  (read-only scopes: `Mail.Read`, `Calendars.Read`, `Files.Read.All`).
+- ❌ Never sends, deletes, moves, or modifies anything. There is no write access.
 - 🔒 Your API key and login token stay on your machine. Nothing is committed to git.
+
+## What a meeting brief includes
+
+For each meeting starting soon, Sarus reads the calendar invite and writes a
+tight, scannable brief so you can walk in ready:
+
+- **What & when** — subject, start time, duration, online/in-person.
+- **Who** — organizer and attendees with their role (required/optional) and
+  response (accepted/declined/tentative), flagging any notable declines.
+- **Agenda** — the purpose/agenda drawn from the invite body.
+- **Join** — the meeting link or location.
+- **What to prepare** — 2–5 concrete prep actions tailored to that meeting.
+
+It sticks to what's in the invite (it won't invent facts) and skips a section
+when there's genuinely nothing to say.
 
 ## Requirements
 
@@ -65,18 +83,27 @@ permission. That's a one-time step — the login is cached locally
 
 ### 4. Read your briefing
 
-Sarus writes a dated markdown file to `briefings/` and prints it to the terminal.
+Sarus writes a dated, styled HTML file to `~/briefings/` (in your home folder)
+and shows a macOS notification — click it to open the briefing in your browser.
+(The HTML stays in `~/briefings/` if you miss the banner.) Files are named by
+type: `digest-<date>.html` and `meeting-<subject>-<hash>-<date>.html`.
 
 ## Running on a schedule
 
-Add a cron entry (adjust the path):
+`python setup.py` offers to schedule Sarus for you on macOS. It installs two
+`launchd` agents (they run in your GUI session, so the clickable notifications
+actually appear):
 
-```cron
-0 7,18 * * *  cd /path/to/sarus && /path/to/sarus/venv/bin/python sarus.py >> sarus.log 2>&1
-```
+- **Daily digest** at a time you choose (e.g. 07:00) — runs `sarus.py`.
+- **Meeting prep** (optional) — runs `prep.py` at **:05 and :35 past every hour**;
+  briefs any meeting starting in the next ~35 minutes, exactly once each. (The
+  fixed times give a ~25-min heads-up for the usual :00/:30 meeting starts.)
 
-That runs Sarus at 7am and 6pm daily, logging to `sarus.log`. On macOS, if cron
-misbehaves, use a `launchd` agent instead.
+> Notifications need `alerter`:  `brew install alerter`. Without it the HTML
+> briefing is still written, just no banner.
+
+On non-macOS / headless hosts, `setup.py` prints the equivalent `cron` lines
+instead (note: under cron the notification banner may not appear).
 
 ## A note on the Microsoft client ID
 
@@ -88,6 +115,7 @@ can register a public client in Microsoft Entra and swap the ID in `.env`.
 
 ## Privacy
 
-Everything runs locally. Your mail is sent only to the Anthropic API for
-triage, under your own key. `.env`, `token_cache.bin`, and `briefings/` are
-gitignored and never leave your machine via this tool.
+Everything runs locally. Your mail and calendar are sent only to the Anthropic
+API for triage/prep, under your own key. `.env` and `token_cache.bin` are
+gitignored, your briefings are written to `~/briefings/` (outside the repo), and
+nothing leaves your machine via this tool.

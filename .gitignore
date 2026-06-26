@@ -19,5 +19,9 @@ __pycache__/
 briefings/
 sarus.log
 
+# meeting-prep dedup state — local, per-machine
+prepped.json
+
 # schedule — machine-specific absolute paths, generated locally
 com.sarus.briefing.plist
+com.sarus.prep.plist
